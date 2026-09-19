@@ -1,11 +1,19 @@
 /**
- * Patches @whiskeysockets/baileys 7.0.0-rc.9 for three known bugs.
+ * Patches @whiskeysockets/baileys 7.0.0-rc14 for known bugs.
  * Runs as a postinstall script — safe to re-run.
  *
  * 1. passive: true → false  (causes device_removed disconnect)
  * 2. delete lidDbMigrated    (unrecognized field, rejected by WA)
  * 3. remove await on noise.finishInit()  (race condition)
- * 4. update WA Web version (old version rejected with 405)
+ *
+ * The rc.9-era "WA Web version (405 fix)" patch (hardcoded numeric
+ * version overwrite in Defaults/index.js and Utils/generics.js) was
+ * dropped when upgrading to rc14: upstream now ships an up-to-date
+ * version tuple (`const version = [2, 3000, ...]`) natively and the old
+ * numeric string this patch targeted no longer exists in that form. Do
+ * not silently re-add a version patch — if WA starts rejecting the
+ * connection with 405 again, check whether rc14's bundled version has
+ * gone stale upstream first.
  */
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
@@ -55,7 +63,7 @@ function patch(file, find, replace, label) {
   console.log(`  patched: ${label}`);
 }
 
-console.log("patching baileys rc.9...");
+console.log("patching baileys rc14...");
 
 // Patch 1: passive: true → passive: false
 // Matched together with the following `pull: true,` line (not just
@@ -84,21 +92,6 @@ patch(
   "await noise.finishInit()",
   "noise.finishInit()",
   "noise.finishInit race condition",
-);
-
-// Patch 4: update WA Web version (405 fix)
-patch(
-  "Defaults/index.js",
-  "1027934701",
-  "1034074495",
-  "WA Web version (Defaults)",
-);
-
-patch(
-  "Utils/generics.js",
-  "1027934701",
-  "1034074495",
-  "WA Web version (generics)",
 );
 
 if (unapplied > 0) {

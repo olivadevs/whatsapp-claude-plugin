@@ -1,5 +1,14 @@
 # WhatsApp Channel for Claude Code
 
+> **Fork de Oliva Devs (rama `seguro`)** — hardening de seguridad sobre `Rich627/whatsapp-claude-plugin`, para uso interno como canal del agente "Comunicador".
+>
+> - `@whiskeysockets/baileys` actualizado de `7.0.0-rc.9` a `7.0.0-rc14` (corrige CVE-2026-48063 / GHSA-qvv5-jq5g-4cgg — remitente falso podía pasar el gate de allowlist en rc.9; corregido desde rc12). `patch-baileys.mjs` adaptado: el parche de versión de WA Web (405 fix) se sacó porque rc14 ya trae una versión vigente nativa; los otros tres parches (passive flag, lidDbMigrated, race condition de noise.finishInit) siguen aplicando y el script sigue fallando en voz alta si algún parche deja de aplicar.
+> - `bun.lock` versionado (ya no está en `.gitignore`); `npm start` corre `bun server.ts` directo, sin reinstalar; instalación explícita con `bun run install:locked` (`bun install --frozen-lockfile`). Dependencias directas fijadas a versión exacta (sin rangos `^`).
+> - `download_attachment` ahora verifica que el chat dueño del mensaje esté en la allowlist antes de descargar.
+> - `list_groups` solo lista grupos ya allowlisteados (antes listaba todos los grupos del account). **Este fork no usa grupos**: la política operativa de Oliva Devs es DM-only (`dmPolicy: "allowlist"`, `groups: {}`); no se agregan grupos a `access.json`.
+> - Ver `SECURITY.md` de este fork para el detalle de la auditoría.
+
+
 Drive your Claude Code session from WhatsApp — your personal number, no bots, no API keys.
 
 The plugin connects to WhatsApp as a **linked device** (the same protocol as WhatsApp Web, via Baileys) and exposes it to Claude Code as an MCP channel. Incoming messages reach your session in real time; Claude replies from your own number, so recipients see a normal chat. Everything runs locally on your machine — messages travel directly between WhatsApp and your session, with no third-party servers in between. Once paired, it keeps working while your phone is off; only the Claude Code session needs to stay open, and reconnects never require re-pairing.

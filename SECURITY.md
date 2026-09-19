@@ -1,5 +1,15 @@
 # Security Policy
 
+## Oliva Devs fork — audit notes (rama `seguro`, base upstream commit `169a8808815eb659c9ad45d916ba1bd6baa967d0`)
+
+Auditoría interna previa a usar este fork como canal del agente "Comunicador" (aún sin chip vinculado):
+
+- 🔴 **CVE-2026-48063 / GHSA-qvv5-jq5g-4cgg** — upstream fijaba `@whiskeysockets/baileys` en `7.0.0-rc.9`, afectada: mensajes con remitente falso podían pasar el gate de allowlist. Corregido en `>= 7.0.0-rc12`. Este fork usa `7.0.0-rc14` y adapta `patch-baileys.mjs` (ver README).
+- 🟠 Sin lockfile versionado, `bun install` en cada arranque, rangos de dependencias abiertos, `libsignal` resuelto por bun sin pin explícito. Este fork versiona `bun.lock`, separa instalación (`bun run install:locked`, `--frozen-lockfile`) de arranque (`bun server.ts`), y fija las tres dependencias directas a versión exacta. `libsignal` llega como dependencia transitiva de baileys desde el registro npm (no por git) y queda fijado por hash vía `bun.lock`.
+- 🟡 `download_attachment` no verificaba la allowlist del chat dueño del mensaje antes de descargar — corregido. `list_groups` enumeraba todos los grupos del account — ahora solo lista grupos ya allowlisteados; este fork no usa grupos (política DM-only).
+- 🟢 Allowlist cerrada por defecto, sin telemetría, reply limitado a chats permitidos — sin cambios, ya estaba bien.
+
+
 This project bridges WhatsApp into Claude Code. A running instance holds **WhatsApp
 linked-device credentials** and can **send and receive messages as the linked account**,
 so security reports are taken seriously.

@@ -2997,7 +2997,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () =>
           },
           {
             name: "list_groups",
-            description: `List every WhatsApp group this account is currently a member of, with each group's name and JID, whether it's already allowlisted, and whether roster access (member names, needed for @all) is granted. Use this to find the JID of a newly-joined group so it can be added via the /whatsapp-channel:access skill — no need to guess the JID from logs. Read-only: does not change access. Also refreshes the on-disk group name/count cache the terminal access wizard (${WIZARD_CMD}) reads from.`,
+            description: `List the WhatsApp groups this account is a member of AND already allowlisted, with each group's name, JID, and whether roster access (member names, needed for @all) is granted. Groups the account has joined but nobody allowlisted are not listed here (this fork hardens against enumerating them; find a new group's JID from WhatsApp itself and add it via the /whatsapp-channel:access skill). Read-only: does not change access. Also refreshes the on-disk group name/count cache the terminal access wizard (${WIZARD_CMD}) reads from.`,
             inputSchema: {
               type: "object",
               properties: {},
@@ -3252,6 +3252,13 @@ const handleToolCall = async (req: {
           throw new Error(
             "Message not found in store — it may have expired. Ask the sender to resend.",
           );
+        // Hardening: messageProtoStore is keyed only by message id, so
+        // without this check any fileId the model has seen (from any chat
+        // it has ever been fed) could be downloaded regardless of who sent
+        // it. Enforce the same allowlist boundary every other tool uses.
+        const ownerChatId = proto.key.remoteJid;
+        if (!ownerChatId) throw new Error("Message has no chat id");
+        assertAllowedChat(ownerChatId);
 
         const buffer = (await downloadMediaMessage(
           proto,
@@ -3423,31 +3430,41 @@ const handleToolCall = async (req: {
       case "list_groups": {
         if (!sock) throw new Error("WhatsApp not connected");
         const access = loadAccess();
-        const groups = await refreshGroupsMeta(sock);
+        const allGroups = await refreshGroupsMeta(sock);
+        // Hardening: the upstream version lists every group this account
+        // has ever joined, including groups nobody allowlisted — that's
+        // more surface than the model needs. Only groups already granted
+        // in access.json are shown; a non-allowlisted group the account is
+        // in is never enumerated here (add it via /whatsapp-channel:access
+        // from the terminal, using its JID from WhatsApp itself, not from
+        // this tool).
+        const groups = allGroups.filter((g) => Object.hasOwn(access.groups, g.id));
         if (groups.length === 0) {
           return {
             content: [
-              { type: "text", text: "This account is not in any groups." },
+              {
+                type: "text",
+                text: "No allowlisted groups. (This fork does not use groups — see README/ACCESS.md.)",
+              },
             ],
           };
         }
         groups.sort((a, b) => (a.subject ?? "").localeCompare(b.subject ?? ""));
         const lines = groups.map((g) => {
-          const allowed = Object.hasOwn(access.groups, g.id);
           const roster = !!access.groups[g.id]?.roster;
           // Same reason as resolveGroupName: an admin-settable subject is
           // rendered into text the model reads.
           const name = safeName(g.subject)?.trim() || "(no name)";
-          const flags = `${allowed ? "✓" : "+"}${roster ? "R" : ""}`;
-          return `${flags} ${name}\n    ${g.id}${allowed ? "" : "  (NOT allowlisted)"}`;
+          const flags = `✓${roster ? "R" : ""}`;
+          return `${flags} ${name}\n    ${g.id}`;
         });
         const legend =
-          "✓ = allowlisted   + = joined but not allowlisted   R = roster access granted (add/change via /whatsapp-channel:access)";
+          "✓ = allowlisted   R = roster access granted (add/change via /whatsapp-channel:access)";
         return {
           content: [
             {
               type: "text",
-              text: `${groups.length} group(s):\n\n${lines.join("\n")}\n\n${legend}`,
+              text: `${groups.length} allowlisted group(s):\n\n${lines.join("\n")}\n\n${legend}`,
             },
           ],
         };
