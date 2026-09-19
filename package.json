@@ -9,7 +9,7 @@
   "bin": "./server.ts",
   "license": "Apache-2.0",
   "scripts": {
-    "start": "bun server.ts",
+    "start": "bun --no-install server.ts",
     "install:locked": "bun install --frozen-lockfile",
     "postinstall": "node patch-baileys.mjs"
   },

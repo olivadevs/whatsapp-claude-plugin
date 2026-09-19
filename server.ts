@@ -49,7 +49,7 @@ import {
   existsSync,
 } from "fs";
 import { homedir } from "os";
-import { join, extname, sep, basename, resolve } from "path";
+import { join, extname, basename, resolve } from "path";
 import {
   expandAllMention,
   isReservedAllToken,
@@ -61,6 +61,7 @@ import { extractMentions, extractText } from "./lib/inbound-message";
 import { parseMaxStore } from "./lib/max-store";
 import { logContainsId } from "./lib/message-log-probe";
 import { ownerStamp, parsePermissionReply } from "./lib/owner";
+import { assertSendable as assertSendableFile } from "./lib/sendable";
 import {
   awaitingReply,
   CONTEXT_TTL_MS,
@@ -107,6 +108,9 @@ const ACCESS_FILE = join(STATE_DIR, "access.json");
 const APPROVED_DIR = join(STATE_DIR, "approved");
 const AUTH_DIR = join(STATE_DIR, ".baileys_auth");
 const INBOX_DIR = join(STATE_DIR, "inbox");
+// Oliva Devs hardening: dedicated directory attachments must live under to
+// be sendable at all — see assertSendable below.
+const OUTBOX_DIR = join(STATE_DIR, "outbox");
 const ENV_FILE = join(STATE_DIR, ".env");
 const GROUPS_DIR = join(STATE_DIR, "groups");
 const LID_MAP_FILE = join(STATE_DIR, "lid-map.json");
@@ -219,6 +223,7 @@ function logDiag(line: string): void {
 
 mkdirSync(AUTH_DIR, { recursive: true, mode: 0o700 });
 mkdirSync(INBOX_DIR, { recursive: true });
+mkdirSync(OUTBOX_DIR, { recursive: true });
 
 // ─── Single-instance lock ──────────────────────────────────────────────
 // Two server.ts processes connecting to the same Baileys auth state will
@@ -1156,50 +1161,18 @@ function defaultAccess(): Access {
 const MAX_CHUNK_LIMIT = 4096; // practical limit for readability
 const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024; // WhatsApp 16MB media limit
 
-// Home-relative directories nothing legitimate is ever attached from. This is
-// a speed bump, NOT a sandbox: every other readable file on this machine is
-// still sendable, and widening it into a filesystem allowlist is a product
-// decision, not a bug fix. The real boundary is the access allowlist — only a
-// chat that passed assertAllowedChat can ask for an attachment at all.
-const SENSITIVE_HOME_DIRS = [".ssh", ".aws", ".gnupg"];
-
-function realDir(p: string): string {
-  try {
-    return realpathSync(p);
-  } catch {
-    return resolve(p);
-  }
-}
-
+// Oliva Devs hardening: allowlist, not denylist. Upstream only blocked a
+// handful of known-sensitive paths (STATE_DIR minus inbox, ~/.ssh, ~/.aws,
+// ~/.gnupg, .env*) and let every other readable file on the machine through
+// — fine for a personal single-user assistant, too wide for a channel that
+// also talks to clients. Only files that resolve inside OUTBOX_DIR are
+// sendable now; everything else is refused with a clear error, regardless of
+// what it is. The outbox is meant to be populated deliberately (by Miyoia,
+// via the approved-message flow), not browsed into from arbitrary paths.
+// Logic lives in ./lib/sendable.ts so it's unit-testable without this
+// file's connect-on-import side effects.
 function assertSendable(f: string): void {
-  let real: string;
-  try {
-    real = realpathSync(f);
-  } catch {
-    // Fail closed. Returning here used to ALLOW the send, which made every
-    // check below skippable by handing in a path that doesn't resolve. The
-    // one caller stats the file immediately afterwards, so a genuinely
-    // sendable file always resolves — refusing costs nothing legitimate.
-    throw new Error(`refusing to send unresolvable path: ${f}`);
-  }
-  // AUTH_DIR lives under STATE_DIR, so the credential store is covered by
-  // this same check rather than needing its own entry below.
-  const stateReal = realDir(STATE_DIR);
-  const inbox = join(stateReal, "inbox");
-  if (real.startsWith(stateReal + sep) && !real.startsWith(inbox + sep)) {
-    throw new Error(`refusing to send channel state: ${f}`);
-  }
-  const home = realDir(homedir());
-  for (const d of SENSITIVE_HOME_DIRS) {
-    const dir = realDir(join(home, d));
-    if (real === dir || real.startsWith(dir + sep)) {
-      throw new Error(`refusing to send credential file: ${f}`);
-    }
-  }
-  const base = basename(real);
-  if (base === ".env" || base.startsWith(".env.")) {
-    throw new Error(`refusing to send credential file: ${f}`);
-  }
+  assertSendableFile(f, OUTBOX_DIR);
 }
 
 function readAccessFile(): Access {

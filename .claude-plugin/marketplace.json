@@ -1,10 +1,10 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "whatsapp-claude-plugin",
+  "name": "olivadevs-whatsapp",
   "version": "1.5.0",
-  "description": "WhatsApp channel plugin for Claude Code",
+  "description": "WhatsApp channel plugin for Claude Code — Oliva Devs security-hardened fork",
   "owner": {
-    "name": "Rich627"
+    "name": "Oliva Devs"
   },
   "plugins": [
     {

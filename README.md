@@ -3,9 +3,11 @@
 > **Fork de Oliva Devs (rama `seguro`)** — hardening de seguridad sobre `Rich627/whatsapp-claude-plugin`, para uso interno como canal del agente "Comunicador".
 >
 > - `@whiskeysockets/baileys` actualizado de `7.0.0-rc.9` a `7.0.0-rc14` (corrige CVE-2026-48063 / GHSA-qvv5-jq5g-4cgg — remitente falso podía pasar el gate de allowlist en rc.9; corregido desde rc12). `patch-baileys.mjs` adaptado: el parche de versión de WA Web (405 fix) se sacó porque rc14 ya trae una versión vigente nativa; los otros tres parches (passive flag, lidDbMigrated, race condition de noise.finishInit) siguen aplicando y el script sigue fallando en voz alta si algún parche deja de aplicar.
-> - `bun.lock` versionado (ya no está en `.gitignore`); `npm start` corre `bun server.ts` directo, sin reinstalar; instalación explícita con `bun run install:locked` (`bun install --frozen-lockfile`). Dependencias directas fijadas a versión exacta (sin rangos `^`).
+> - `bun.lock` versionado (ya no está en `.gitignore`); `npm start` corre `bun --no-install server.ts` directo, sin reinstalar; instalación explícita con `bun run install:locked` (`bun install --frozen-lockfile`). Dependencias directas fijadas a versión exacta (sin rangos `^`).
 > - `download_attachment` ahora verifica que el chat dueño del mensaje esté en la allowlist antes de descargar.
 > - `list_groups` solo lista grupos ya allowlisteados (antes listaba todos los grupos del account). **Este fork no usa grupos**: la política operativa de Oliva Devs es DM-only (`dmPolicy: "allowlist"`, `groups: {}`); no se agregan grupos a `access.json`.
+> - `reply`/attachments: los archivos a enviar solo pueden estar dentro de `~/.whatsapp-channel/outbox` (antes se podía adjuntar casi cualquier archivo legible de la máquina, salvo una lista corta de rutas sensibles). Lógica en `lib/sendable.ts`, con tests en `lib/sendable.test.ts`.
+> - Marketplace propio: `.claude-plugin/marketplace.json` renombrado a `olivadevs-whatsapp` (owner Oliva Devs); `.claude-plugin/plugin.json` con author/repository apuntando al fork. Se instala como marketplace **local** desde `D:\olivadevs\whatsapp-channel` fijado a un commit — ver sección de instalación más abajo y `ACEITUNA.md`.
 > - Ver `SECURITY.md` de este fork para el detalle de la auditoría.
 
 
@@ -24,11 +26,31 @@ The plugin connects to WhatsApp as a **linked device** (the same protocol as Wha
 
 ## Installation
 
+Upstream (unmodified, official marketplace):
+
 ```sh
 claude plugin marketplace add Rich627/whatsapp-claude-plugin
 claude plugin install whatsapp-channel@whatsapp-claude-plugin
 claude --dangerously-load-development-channels plugin:whatsapp-channel@whatsapp-claude-plugin
 ```
+
+**Oliva Devs fork** (this repo, hardened `seguro` branch) — installed as a **local** marketplace, pinned to a commit, not from GitHub directly:
+
+```sh
+git -C D:\olivadevs\whatsapp-channel fetch origin
+git -C D:\olivadevs\whatsapp-channel checkout --detach <sha>   # e.g. the seguro-branch commit being deployed
+claude plugin marketplace add D:\olivadevs\whatsapp-channel
+claude plugin install whatsapp-channel@olivadevs-whatsapp
+claude --dangerously-load-development-channels plugin:whatsapp-channel@olivadevs-whatsapp
+```
+
+Then, inside the plugin's cache directory (where Claude Code copied the local marketplace source — check `claude plugin list` or the plugin cache path it prints), run the locked install once:
+
+```sh
+bun run install:locked   # bun install --frozen-lockfile
+```
+
+`start` (`bun --no-install server.ts`) never reinstalls on its own, so this step is what actually pulls the pinned `bun.lock` dependency tree the first time.
 
 The `--dangerously-load-development-channels` flag matters: it registers the plugin as a **channel**, so an inbound WhatsApp message wakes your session immediately. Without it the tools still load, but nothing wakes the session when messages arrive — they sit unanswered until you (or a [watchdog](./scripts/watchdog.sh)) prompt Claude to check. `--channels` does not accept this plugin yet (it is not on the research-preview allowlist), so the development flag is currently the only way.
 
